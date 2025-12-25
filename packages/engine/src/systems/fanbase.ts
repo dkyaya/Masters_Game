@@ -57,6 +57,10 @@ function sumTourEffects(inputs: WeeklyInputs): { gain: number; loss: number } {
     return { gain: 0, loss: 0 };
   }
 
+  if (inputs.tour.lossAmount !== undefined) {
+    return { gain: 0, loss: inputs.tour.lossAmount };
+  }
+
   const effect =
     inputs.tour.attendance *
     inputs.tour.performanceQuality *

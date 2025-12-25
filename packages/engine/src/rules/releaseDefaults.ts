@@ -30,6 +30,18 @@ export const ALBUM_BASE_REACH_MULTIPLIER = {
   HIGH_COHESION: 2.2,
 } as const;
 
+export function albumMultiplierForCohesion(
+  cohesion: "Low" | "Medium" | "High",
+): number {
+  if (cohesion === "Low") {
+    return ALBUM_BASE_REACH_MULTIPLIER.LOW_COHESION;
+  }
+  if (cohesion === "High") {
+    return ALBUM_BASE_REACH_MULTIPLIER.HIGH_COHESION;
+  }
+  return ALBUM_BASE_REACH_MULTIPLIER.MEDIUM_COHESION;
+}
+
 export function baseReachForTier(tier: FameTier): number {
   return SINGLE_BASE_REACH[tier];
 }

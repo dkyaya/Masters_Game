@@ -4,6 +4,7 @@ import { createEmptyWeeklyInputs } from "../state/weeklyInputs";
 import type { SummaryItem } from "../state/summary";
 import { runWeeklySystems } from "./weekly";
 import { compareFameTier } from "../rules/fameTiers";
+import { burnoutWarning } from "../rules/burnout";
 
 function resetTransient(): TransientState {
   return {
@@ -32,7 +33,7 @@ export function advanceWeek(state: GameState): GameState {
     },
     {
       label: "Burnout pressure",
-      value: null,
+      value: burnoutWarning(afterSystems.burnout.value),
     },
   ];
 

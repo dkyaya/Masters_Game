@@ -1,6 +1,7 @@
 import type { GameState } from "../state/gameState";
 import type {
   CreativeDirection,
+  CohesionLevel,
   MusicProject,
   MusicState,
   ProductionFocus,
@@ -15,13 +16,16 @@ import {
   QUALITY_MAX,
   QUALITY_MIN,
   clampQuality,
+  QUALITY_PHASE_THRESHOLDS,
   qualityLabelForQuality,
 } from "../rules/musicQuality";
 import {
   DEFAULT_FAME_MULTIPLIER,
   DEFAULT_HYPE_MATCH,
+  albumMultiplierForCohesion,
   baseReachForTier,
 } from "../rules/releaseDefaults";
+import { BURNOUT_WARNING_THRESHOLDS } from "../rules/burnout";
 
 export type StartSingleParams = {
   initialQuality?: number;
@@ -44,8 +48,16 @@ export type ReleaseParams = {
   fameMultiplier?: number;
 };
 
+export type AlbumCohesionParams = {
+  cohesion?: CohesionLevel;
+};
+
 function buildProjectId(state: MusicState): string {
   return `single-${state.nextProjectId}`;
+}
+
+function buildAlbumId(state: MusicState): string {
+  return `album-${state.nextProjectId}`;
 }
 
 function updateActiveProject(
@@ -59,6 +71,26 @@ function updateActiveProject(
       activeProject: project,
     },
   };
+}
+
+function hasReleaseTraction(quality: number): boolean {
+  return quality >= QUALITY_PHASE_THRESHOLDS.ROUGH_MAX;
+}
+
+function deriveAlbumCohesion(
+  state: GameState,
+  project: MusicProject,
+): CohesionLevel {
+  if (state.burnout.value >= BURNOUT_WARNING_THRESHOLDS.HIGH) {
+    return "Low";
+  }
+  if (
+    state.burnout.value >= BURNOUT_WARNING_THRESHOLDS.MEDIUM ||
+    project.focusAdjustments > 0
+  ) {
+    return "Medium";
+  }
+  return "High";
 }
 
 export function startSingleProject(
@@ -80,12 +112,47 @@ export function startSingleProject(
     quality,
     qualityCap,
     qualityLabel: qualityLabelForQuality(quality),
+    focusAdjustments: 0,
     weeklyRefinementCost: params?.weeklyRefinementCost ?? DEFAULT_REFINEMENT_COST,
   };
 
   return {
     ...state,
     music: {
+      ...state.music,
+      activeProject: project,
+      nextProjectId: state.music.nextProjectId + 1,
+    },
+  };
+}
+
+export function startAlbumProject(
+  state: GameState,
+  params?: StartSingleParams,
+): GameState {
+  if (state.music.activeProject) {
+    return state;
+  }
+
+  const quality = clampQuality(params?.initialQuality ?? QUALITY_MIN);
+  const qualityCap = clampQuality(params?.qualityCap ?? QUALITY_MAX);
+  const project: MusicProject = {
+    id: buildAlbumId(state.music),
+    type: "Album",
+    phase: "Direction",
+    createdWeek: state.week,
+    lastUpdatedWeek: state.week,
+    quality,
+    qualityCap,
+    qualityLabel: qualityLabelForQuality(quality),
+    focusAdjustments: 0,
+    weeklyRefinementCost: params?.weeklyRefinementCost ?? DEFAULT_REFINEMENT_COST,
+  };
+
+  return {
+    ...state,
+    music: {
+      ...state.music,
       activeProject: project,
       nextProjectId: state.music.nextProjectId + 1,
     },
@@ -151,7 +218,11 @@ export function refineProject(
     Math.min(project.qualityCap, project.quality + delta),
   );
   const nextPhase =
-    nextQuality >= project.qualityCap ? "ReleaseReady" : "Iteration";
+    nextQuality >= project.qualityCap
+      ? project.type === "Album"
+        ? "Cohesion"
+        : "ReleaseReady"
+      : "Iteration";
 
   const nextProject: MusicProject = {
     ...project,
@@ -182,6 +253,7 @@ export function adjustProductionFocus(
     productionFocus,
     quality: nextQuality,
     qualityLabel: qualityLabelForQuality(nextQuality),
+    focusAdjustments: project.focusAdjustments + 1,
     lastUpdatedWeek: state.week,
   };
 
@@ -196,6 +268,25 @@ export function prepareRelease(state: GameState): GameState {
 
   return updateActiveProject(state, {
     ...project,
+    phase: project.type === "Album" ? "Cohesion" : "ReleaseReady",
+    lastUpdatedWeek: state.week,
+  });
+}
+
+export function setAlbumCohesion(
+  state: GameState,
+  params?: AlbumCohesionParams,
+): GameState {
+  const project = state.music.activeProject;
+  if (!project || project.type !== "Album" || project.phase !== "Cohesion") {
+    return state;
+  }
+
+  const cohesion = params?.cohesion ?? deriveAlbumCohesion(state, project);
+
+  return updateActiveProject(state, {
+    ...project,
+    cohesion,
     phase: "ReleaseReady",
     lastUpdatedWeek: state.week,
   });
@@ -219,11 +310,12 @@ export function releaseSingle(
   params?: ReleaseParams,
 ): GameState {
   const project = state.music.activeProject;
-  if (!project || project.phase !== "ReleaseReady") {
+  if (!project || project.phase !== "ReleaseReady" || project.type !== "Single") {
     return state;
   }
 
   const releaseOutcome: ReleaseOutcome = {
+    type: "Single",
     baseReach: params?.baseReach ?? baseReachForTier(state.fameTier),
     quality: project.quality,
     hypeMatch: params?.hypeMatch ?? DEFAULT_HYPE_MATCH,
@@ -235,6 +327,16 @@ export function releaseSingle(
     music: {
       ...state.music,
       activeProject: undefined,
+      releasedProjects: [
+        ...state.music.releasedProjects,
+        {
+          id: project.id,
+          type: project.type,
+          releasedWeek: state.week,
+          quality: project.quality,
+          hasTraction: hasReleaseTraction(project.quality),
+        },
+      ],
     },
     weeklyInputs: {
       ...state.weeklyInputs,
@@ -243,6 +345,57 @@ export function releaseSingle(
     transient: {
       ...state.transient,
       events: [...state.transient.events, "Single released"],
+    },
+  };
+}
+
+export function releaseAlbum(
+  state: GameState,
+  params?: ReleaseParams,
+): GameState {
+  const project = state.music.activeProject;
+  if (!project || project.phase !== "ReleaseReady" || project.type !== "Album") {
+    return state;
+  }
+
+  const cohesion = project.cohesion ?? "Medium";
+  const baseReach =
+    params?.baseReach ??
+    baseReachForTier(state.fameTier) * albumMultiplierForCohesion(cohesion);
+
+  const releaseOutcome: ReleaseOutcome = {
+    type: "Album",
+    baseReach,
+    quality: project.quality,
+    hypeMatch: params?.hypeMatch ?? DEFAULT_HYPE_MATCH,
+    fameMultiplier: params?.fameMultiplier ?? DEFAULT_FAME_MULTIPLIER,
+    cohesion,
+  };
+
+  return {
+    ...state,
+    music: {
+      ...state.music,
+      activeProject: undefined,
+      releasedProjects: [
+        ...state.music.releasedProjects,
+        {
+          id: project.id,
+          type: project.type,
+          releasedWeek: state.week,
+          quality: project.quality,
+          cohesion,
+          hasTraction: hasReleaseTraction(project.quality),
+        },
+      ],
+    },
+    weeklyInputs: {
+      ...state.weeklyInputs,
+      releases: [...state.weeklyInputs.releases, releaseOutcome],
+    },
+    transient: {
+      ...state.transient,
+      events: [...state.transient.events, "Album released"],
     },
   };
 }

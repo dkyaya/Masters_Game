@@ -1,6 +1,11 @@
-export type MusicProjectType = "Single";
+export type MusicProjectType = "Single" | "Album";
 
-export type MusicPhase = "Direction" | "Production" | "Iteration" | "ReleaseReady";
+export type MusicPhase =
+  | "Direction"
+  | "Production"
+  | "Iteration"
+  | "Cohesion"
+  | "ReleaseReady";
 
 export type CreativeDirection =
   | "Safe"
@@ -19,6 +24,17 @@ export type ProductionFocus = {
 
 export type QualityLabel = "Rough" | "Solid" | "Polished";
 
+export type CohesionLevel = "Low" | "Medium" | "High";
+
+export type ReleasedProject = {
+  id: string;
+  type: MusicProjectType;
+  releasedWeek: number;
+  quality: number;
+  cohesion?: CohesionLevel;
+  hasTraction: boolean;
+};
+
 export type MusicProject = {
   id: string;
   type: MusicProjectType;
@@ -30,10 +46,13 @@ export type MusicProject = {
   quality: number;
   qualityCap: number;
   qualityLabel: QualityLabel;
+  cohesion?: CohesionLevel;
+  focusAdjustments: number;
   weeklyRefinementCost: number;
 };
 
 export type MusicState = {
   activeProject?: MusicProject;
   nextProjectId: number;
+  releasedProjects: ReleasedProject[];
 };
