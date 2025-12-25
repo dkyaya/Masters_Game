@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@engine": ["../../packages/engine/src/index.ts"],
+      "@engine/*": ["../../packages/engine/src/*"],
+      "@shared": ["../../shared"],
+      "@shared/*": ["../../shared/*"]
+    }
+  },
+  "include": ["src"]
+}
